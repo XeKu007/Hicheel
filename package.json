@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",
+    "@prisma/extension-accelerate": "^3.0.1",
     "@stackframe/stack": "^2.8.39",
+    "@upstash/redis": "^1.37.0",
     "lucide-react": "^0.544.0",
     "next": "15.5.2",
     "react": "19.1.0",

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "../auth";
 import { prisma } from "../prisma";
+import { invalidateCache } from "../redis";
 import { z } from "zod";
 
 const ProductSchema = z.object({
@@ -18,8 +19,13 @@ export async function deleteProduct(formData: FormData) {
   const id = String(formData.get("id") || "");
 
   await prisma.product.deleteMany({
-    where: { id: id, userId: user.id },
+    where: { id, userId: user.id },
   });
+
+  await invalidateCache([
+    `dashboard:${user.id}`,
+    `inventory:${user.id}:*`,
+  ]);
 }
 
 export async function createProduct(formData: FormData) {
@@ -37,12 +43,14 @@ export async function createProduct(formData: FormData) {
     throw new Error("Validation failed");
   }
 
-  try {
-    await prisma.product.create({
-      data: { ...parsed.data, userId: user.id },
-    });
-    redirect("/inventory");
-  } catch (error) {
-    throw new Error("Failed to create product.");
-  }
+  await prisma.product.create({
+    data: { ...parsed.data, userId: user.id },
+  });
+
+  await invalidateCache([
+    `dashboard:${user.id}`,
+    `inventory:${user.id}:*`,
+  ]);
+
+  redirect("/inventory");
 }
