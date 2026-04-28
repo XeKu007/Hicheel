@@ -1,25 +1,29 @@
 import Sidebar from "@/components/sidebar";
+import AlertBell from "@/components/alert-bell";
 import { getOrgContext } from "@/lib/org";
 import { AccountSettings } from "@stackframe/stack";
 
 export default async function SettingsPage() {
   const ctx = await getOrgContext();
   return (
-    <div className="min-h-screen" style={{ background: "#0a0a0f" }}>
-      <Sidebar currentPath="/settings" orgName={ctx.orgName} role={ctx.role} />
-      <main className="ml-64 p-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold" style={{ color: "#e2e8f0" }}>Settings</h1>
-          <p className="text-sm mt-1" style={{ color: "rgba(226,232,240,0.5)" }}>
-            Manage your account settings and preferences.
-          </p>
+    <div className="app-shell">
+      <Sidebar currentPath="/settings" orgName={ctx.orgName} role={ctx.role} locale={ctx.locale}
+        alertBell={<AlertBell />}
+        userName={ctx.userName} userEmail={ctx.userEmail} userAvatar={ctx.userAvatar} />
+      <div className="content-wrap">
+        <div className="topbar">
+          <span className="topbar-brand">StockFlow</span>
+          <span className="topbar-sep">/</span>
+          <span className="topbar-page">Settings</span>
         </div>
-        <div className="max-w-4xl">
-          <div className="p-6" style={{ background: "rgba(13,13,26,0.8)", border: "1px solid rgba(56,189,248,0.15)", borderRadius: "12px" }}>
-            <AccountSettings fullPage />
+        <div className="page-main">
+          <div className="page-content" style={{ padding: "20px" }}>
+            <div className="card" style={{ padding: "20px" }}>
+              <AccountSettings fullPage />
+            </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

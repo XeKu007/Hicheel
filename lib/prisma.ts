@@ -5,7 +5,7 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient() {
-  return new PrismaClient({
+  const client = new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
     datasources: {
       db: {
@@ -13,6 +13,12 @@ function createPrismaClient() {
       },
     },
   });
+
+  // Warm up the connection pool immediately on creation
+  // This prevents cold-start latency on the first real query
+  client.$connect().catch(() => {});
+
+  return client;
 }
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();

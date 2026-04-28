@@ -1,94 +1,118 @@
 import Sidebar from "@/components/sidebar";
+import AlertBell from "@/components/alert-bell";
 import { getOrgContext } from "@/lib/org";
-import { createProduct } from "@/lib/actions/products";
-import Link from "next/link";
-
-const inputStyle = {
-  background: "rgba(56,189,248,0.05)",
-  border: "1px solid rgba(56,189,248,0.2)",
-  color: "#e2e8f0",
-  borderRadius: "8px",
-};
-
-const labelStyle = {
-  color: "rgba(226,232,240,0.7)",
-  fontSize: "0.875rem",
-  fontWeight: 500,
-};
+import { prisma } from "@/lib/prisma";
+import { getCached, TTL } from "@/lib/redis";
+import AddProductClient from "./client";
+import { dispatchProduct } from "@/lib/actions/products";
+import { ArrowUpFromLine } from "lucide-react";
+import TiltCard from "@/components/tilt-card";
 
 export default async function AddProductPage() {
   const ctx = await getOrgContext();
+
+  const [categories, dispatchItems] = await Promise.all([
+    getCached(
+      `org:${ctx.organizationId}:categories`,
+      async () => {
+        const rows = await prisma.product.groupBy({
+          by: ["category"],
+          where: { organizationId: ctx.organizationId, category: { not: null } },
+          orderBy: { category: "asc" },
+        });
+        return rows.map(r => r.category as string);
+      },
+      TTL.MEDIUM
+    ),
+    getCached(
+      `org:${ctx.organizationId}:dispatch:products`,
+      () => prisma.product.findMany({
+        where: { organizationId: ctx.organizationId, quantity: { gt: 0 } },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, sku: true, quantity: true },
+      }),
+      TTL.SHORT
+    ),
+  ]);
+
   return (
-    <div className="min-h-screen" style={{ background: "#0a0a0f" }}>
-      <Sidebar currentPath="/add-product" orgName={ctx.orgName} role={ctx.role} />
-      <main className="ml-64 p-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold" style={{ color: "#e2e8f0" }}>Add Product</h1>
-          <p className="text-sm mt-1" style={{ color: "rgba(226,232,240,0.5)" }}>
-            Add a new product to your inventory
-          </p>
+    <div className="app-shell">
+      <Sidebar currentPath="/add-product" orgName={ctx.orgName} role={ctx.role} locale={ctx.locale}
+        alertBell={<AlertBell />}
+        userName={ctx.userName} userEmail={ctx.userEmail} userAvatar={ctx.userAvatar} />
+      <div className="content-wrap">
+        <div className="topbar">
+          <span className="topbar-brand">StockFlow</span>
+          <span className="topbar-sep">/</span>
+          <span className="topbar-page">Add Product</span>
         </div>
+        <div className="page-main">
+          <div className="page-content" style={{ padding: "20px" }}>
+            <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "flex-start" }}>
 
-        <div className="max-w-2xl">
-          <div className="p-6" style={{ background: "rgba(13,13,26,0.8)", border: "1px solid rgba(56,189,248,0.15)", borderRadius: "12px" }}>
-            <form className="space-y-6" action={createProduct}>
-              <div>
-                <label htmlFor="name" className="block mb-2" style={labelStyle}>Product Name *</label>
-                <input type="text" id="name" name="name" required
-                  className="w-full px-4 py-2.5 outline-none focus:ring-1"
-                  style={{ ...inputStyle, "--tw-ring-color": "#38bdf8" } as React.CSSProperties}
-                  placeholder="Enter product name" />
-              </div>
+              {/* ── Add Product form ── */}
+              <AddProductClient existingCategories={categories} />
 
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label htmlFor="quantity" className="block mb-2" style={labelStyle}>Quantity *</label>
-                  <input type="number" id="quantity" name="quantity" min="0" required
-                    className="w-full px-4 py-2.5 outline-none"
-                    style={inputStyle}
-                    placeholder="0" />
+              {/* ── Dispatch form ── */}
+              <div style={{ flex: "0 0 auto", width: "100%", maxWidth: "480px" }}>
+                <div style={{
+                  fontSize: "9px", fontWeight: 700, letterSpacing: "0.12em",
+                  textTransform: "uppercase", color: "var(--text-3)",
+                  marginBottom: "12px",
+                }}>
+                  Dispatch Product
                 </div>
-                <div>
-                  <label htmlFor="price" className="block mb-2" style={labelStyle}>Price *</label>
-                  <input type="number" id="price" name="price" step="0.01" min="0" required
-                    className="w-full px-4 py-2.5 outline-none"
-                    style={inputStyle}
-                    placeholder="0.00" />
-                </div>
+                <TiltCard intensity={6} style={{
+                  borderRadius: "var(--r-md)",
+                  border: "1px solid var(--border-dim)",
+                  background: "var(--bg-raised)",
+                  padding: "24px",
+                }}>
+                  {dispatchItems.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "var(--text-3)", fontSize: "12px", padding: "24px 0" }}>
+                      No products in stock to dispatch
+                    </div>
+                  ) : (
+                    <form style={{ display: "flex", flexDirection: "column", gap: "14px" }} action={dispatchProduct}>
+                      <div>
+                        <label className="form-label">Product <span style={{ color: "var(--red)" }}>*</span></label>
+                        <select name="productId" required className="input-field">
+                          <option value="">Select a product...</option>
+                          {dispatchItems.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}{p.sku ? ` (${p.sku})` : ""} — {p.quantity} in stock
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="form-label">Quantity <span style={{ color: "var(--red)" }}>*</span></label>
+                        <input type="number" name="quantity" min="1" required className="input-field" placeholder="0" />
+                      </div>
+                      <div>
+                        <label className="form-label">
+                          Reason{" "}
+                          <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
+                        </label>
+                        <input type="text" name="reason" className="input-field" placeholder="e.g. Sold, Damaged, Transferred..." />
+                      </div>
+                      <button
+                        type="submit"
+                        className="btn-accent"
+                        style={{ width: "100%", justifyContent: "center", padding: "8px", marginTop: "4px", display: "flex", alignItems: "center", gap: "6px" }}
+                      >
+                        <ArrowUpFromLine style={{ width: "13px", height: "13px" }} />
+                        Dispatch
+                      </button>
+                    </form>
+                  )}
+                </TiltCard>
               </div>
 
-              <div>
-                <label htmlFor="sku" className="block mb-2" style={labelStyle}>SKU (optional)</label>
-                <input type="text" id="sku" name="sku"
-                  className="w-full px-4 py-2.5 outline-none"
-                  style={inputStyle}
-                  placeholder="Enter SKU" />
-              </div>
-
-              <div>
-                <label htmlFor="lowStockAt" className="block mb-2" style={labelStyle}>Low Stock At (optional)</label>
-                <input type="number" id="lowStockAt" name="lowStockAt" min="0"
-                  className="w-full px-4 py-2.5 outline-none"
-                  style={inputStyle}
-                  placeholder="Enter low stock threshold" />
-              </div>
-
-              <div className="flex gap-4 pt-2">
-                <button type="submit"
-                  className="px-6 py-2.5 rounded-lg font-semibold text-sm transition-opacity hover:opacity-90"
-                  style={{ background: "linear-gradient(90deg, #38bdf8, #7c3aed)", color: "white" }}>
-                  Add Product
-                </button>
-                <Link href="/inventory"
-                  className="px-6 py-2.5 rounded-lg font-semibold text-sm transition-opacity hover:opacity-80"
-                  style={{ border: "1px solid rgba(226,232,240,0.15)", color: "rgba(226,232,240,0.6)", background: "rgba(226,232,240,0.05)" }}>
-                  Cancel
-                </Link>
-              </div>
-            </form>
+            </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

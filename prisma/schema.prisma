@@ -28,12 +28,104 @@ enum ApprovalStatus {
   REJECTED
 }
 
+enum Locale {
+  en
+  mn
+}
+
+enum AlertType {
+  LOW_STOCK
+  ANOMALY
+}
+
+enum AlertStatus {
+  UNREAD
+  DISMISSED
+}
+
+enum StaffActionType {
+  PRODUCT_CREATED
+  PRODUCT_UPDATED
+  INVENTORY_CHECKED
+}
+
+enum BadgeType {
+  FIRST_PRODUCT
+  HUNDRED_UPDATES
+  TOP_PERFORMER
+  INVENTORY_CHECKER
+}
+
+enum AuditActionType {
+  CREATE
+  UPDATE
+  DELETE
+  ROLE_CHANGE
+  MEMBERSHIP
+}
+
+enum WorkflowTriggerType {
+  QUANTITY_BELOW
+  QUANTITY_ABOVE
+  CRON_SCHEDULE
+  ANOMALY_DETECTED
+}
+
+enum WorkflowActionType {
+  SEND_EMAIL
+  CREATE_ALERT
+  GENERATE_REPORT
+  WEBHOOK
+}
+
+enum WorkflowRunStatus {
+  SUCCESS
+  FAILURE
+}
+
+enum ConditionResult {
+  TRUE
+  FALSE
+  SKIPPED
+}
+
+enum InsightType {
+  STOCKOUT_RISK
+  ANOMALY_SPIKE
+  DEAD_STOCK
+}
+
+enum InsightSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AgentRunStatus {
+  SUCCESS
+  FAILURE
+}
+
+enum Plan {
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model Organization {
   id          String   @id @default(cuid())
   name        String
   stackTeamId String   @unique // Stack Auth Team ID
+  currency    String   @default("MNT")
+
+  // Billing
+  plan                     Plan      @default(STARTER)
+  stripeCustomerId         String?   @unique
+  stripeSubscriptionId     String?
+  stripeSubscriptionStatus String?
+  planExpiresAt            DateTime?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -42,6 +134,18 @@ model Organization {
   products           Product[]
   membershipRequests MembershipRequest[]
   invitations        Invitation[]
+  alerts             Alert[]
+  staffActions       StaffAction[]
+  badges             Badge[]
+  auditLogs          AuditLog[]
+  chatSessions       ChatSession[]
+  chatMessages       ChatMessage[]
+  workflowRules      WorkflowRule[]
+  workflowRuns       WorkflowRun[]
+  consumptionRecords ConsumptionRecord[]
+  reorderSuggestions ReorderSuggestion[]
+  agentInsights      AgentInsight[]
+  agentRuns          AgentRun[]
 }
 
 model Member {
@@ -49,15 +153,21 @@ model Member {
   userId         String       // Stack Auth User ID
   organizationId String
   role           Role
+  locale         Locale       @default(en)
+  displayName    String?      // Cached from Stack Auth
+  email          String?      // Cached from Stack Auth
 
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staffActions   StaffAction[]
+  badges         Badge[]
 
   @@unique([userId, organizationId])
   @@index([organizationId])
   @@index([userId])
+  @@index([organizationId, role])
 }
 
 model Invitation {
@@ -99,12 +209,14 @@ model MembershipRequest {
 
 model Product {
   id             String       @id @default(cuid())
-  organizationId String       // replaces userId
+  organizationId String
   name           String
   sku            String?
   price          Decimal      @db.Decimal(12, 2)
   quantity       Int          @default(0)
   lowStockAt     Int?
+  imageUrl       String?
+  category       String?      // Free-text category e.g. "Electronics", "Home"
 
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
@@ -113,5 +225,208 @@ model Product {
 
   @@unique([organizationId, sku])
   @@index([organizationId, name])
+  @@index([organizationId, category])
+  @@index([organizationId, createdAt(sort: Desc)])
   @@index([createdAt])
+}
+
+model Alert {
+  id             String      @id @default(cuid())
+  organizationId String
+  type           AlertType
+  status         AlertStatus @default(UNREAD)
+
+  // Common fields
+  productId      String
+  productName    String
+  createdAt      DateTime    @default(now())
+
+  // LOW_STOCK fields
+  currentQty     Int?
+  lowStockAt     Int?
+
+  // ANOMALY fields
+  previousQty    Int?
+  newQty         Int?
+  percentageDrop Float?
+
+  // Dismiss metadata
+  dismissedById  String?     // Member.id
+  dismissedAt    DateTime?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([organizationId, productId, status])
+  @@index([organizationId, type, status])
+  @@index([createdAt])
+}
+
+model StaffAction {
+  id             String          @id @default(cuid())
+  organizationId String
+  memberId       String
+  type           StaffActionType
+  productId      String?         // Optional: which product was affected
+  productName    String?         // Snapshot of product name at time of action
+  quantityBefore Int?            // Quantity before action
+  quantityAfter  Int?            // Quantity after action
+  createdAt      DateTime        @default(now())
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  member         Member          @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, memberId])
+  @@index([organizationId, type])
+  @@index([memberId, type])
+  @@index([organizationId, createdAt(sort: Desc)])
+}
+
+model Badge {
+  id             String    @id @default(cuid())
+  organizationId String
+  memberId       String
+  type           BadgeType
+  awardedAt      DateTime  @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  member         Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, organizationId, type])
+                                                                                   @@index([organizationId, memberId])
+}
+
+model AuditLog {
+  id               String          @id @default(cuid())
+  organizationId   String
+  actorMemberId    String
+  actorDisplayName String
+  actionType       AuditActionType
+  entityType       String
+  entityId         String
+  entityName       String
+  before           Json?
+  after            Json?
+  createdAt        DateTime        @default(now())
+
+  organization     Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([organizationId, actorMemberId])
+  @@index([organizationId, actionType])
+  @@index([organizationId, entityType])
+}
+
+model ChatSession {
+  id             String        @id @default(cuid())
+  organizationId String
+  memberId       String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  messages       ChatMessage[]
+  @@index([organizationId, memberId])
+}
+
+model ChatMessage {
+  id             String       @id @default(cuid())
+  sessionId      String
+  organizationId String
+  role           String
+  content        String       @db.Text
+  createdAt      DateTime     @default(now())
+  session        ChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@index([sessionId, createdAt])
+  @@index([organizationId])
+  @@index([organizationId, createdAt(sort: Desc)])
+}
+
+model WorkflowRule {
+  id             String              @id @default(cuid())
+  organizationId String
+  name           String
+  triggerType    WorkflowTriggerType
+  triggerConfig  Json
+  conditionExpr  String?
+  actionType     WorkflowActionType
+  actionConfig   Json
+  enabled        Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  runs           WorkflowRun[]
+  @@index([organizationId, enabled])
+  @@index([organizationId, triggerType, enabled])
+}
+
+model WorkflowRun {
+  id              String             @id @default(cuid())
+  organizationId  String
+  workflowRuleId  String
+  triggeredAt     DateTime           @default(now())
+  conditionResult ConditionResult
+  actionType      WorkflowActionType
+  status          WorkflowRunStatus
+  errorMessage    String?
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workflowRule    WorkflowRule       @relation(fields: [workflowRuleId], references: [id], onDelete: Cascade)
+  @@index([organizationId, workflowRuleId])
+  @@index([organizationId, triggeredAt(sort: Desc)])
+}
+
+model ConsumptionRecord {
+  id             String       @id @default(cuid())
+  organizationId String
+  productId      String
+  quantityBefore Int
+  quantityAfter  Int
+  consumed       Int
+  recordedAt     DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@index([organizationId, productId, recordedAt])
+}
+
+model ReorderSuggestion {
+  id                   String       @id @default(cuid())
+  organizationId       String
+  productId            String
+  productName          String
+  currentQuantity      Int
+  dailyConsumptionRate Float
+  daysUntilStockout    Int
+  suggestedReorderQty  Int
+  aiExplanation        String?      @db.Text
+  generatedAt          DateTime     @default(now())
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@index([organizationId, daysUntilStockout])
+}
+
+model AgentInsight {
+  id             String          @id @default(cuid())
+  organizationId String
+  insightType    InsightType
+  productId      String
+  productName    String
+  description    String          @db.Text
+  severity       InsightSeverity
+  resolved       Boolean         @default(false)
+  resolvedById   String?
+  resolvedAt     DateTime?
+  generatedAt    DateTime        @default(now())
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@index([organizationId, resolved, severity])
+  @@index([organizationId, generatedAt(sort: Desc)])
+}
+
+model AgentRun {
+  id                String         @id @default(cuid())
+  organizationId    String
+  startedAt         DateTime       @default(now())
+  completedAt       DateTime?
+  insightsGenerated Int            @default(0)
+  status            AgentRunStatus
+  errorMessage      String?
+  organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@index([organizationId, startedAt(sort: Desc)])
 }

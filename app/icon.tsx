@@ -10,18 +10,17 @@ export default function Icon() {
         style={{
           width: 32,
           height: 32,
+          borderRadius: 8,
+          background: "#C8F000",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          fontSize: 18,
+          fontWeight: 900,
+          color: "#000",
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="http://localhost:3000/logo.png"
-          width={32}
-          height={32}
-          alt="logo"
-        />
+        S
       </div>
     ),
     { ...size }

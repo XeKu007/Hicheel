@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { updateProduct, deleteProduct } from "@/lib/actions/products";
+import { Pencil, Trash2, Check, X, Loader2 } from "lucide-react";
 
 interface Product {
   id: string;
@@ -10,154 +10,199 @@ interface Product {
   price: number;
   quantity: number;
   lowStockAt: number | null;
+  imageUrl?: string | null;
+  category?: string | null;
 }
 
-export default function InventoryTable({ items }: { items: Product[] }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Partial<Product>>({});
+interface InventoryTableProps {
+  items: Product[];
+  onDelete: (id: string) => Promise<void>;
+  onUpdate: (id: string, values: Partial<Product>) => Promise<void>;
+}
 
-  function startEdit(product: Product) {
-    setEditingId(product.id);
-    setEditValues({
-      name: product.name,
-      sku: product.sku ?? "",
-      price: product.price,
-      quantity: product.quantity,
-      lowStockAt: product.lowStockAt ?? undefined,
-    });
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setEditValues({});
-  }
-
-  const inputStyle = {
-    background: "rgba(56,189,248,0.08)",
-    border: "1px solid rgba(56,189,248,0.3)",
-    color: "#e2e8f0",
-    borderRadius: "6px",
-    padding: "4px 8px",
-    fontSize: "0.8rem",
-    width: "100%",
-    outline: "none",
-  };
+function StatusCell({ product }: { product: Product }) {
+  const isOut = product.quantity === 0;
+  const isLow = !isOut && product.lowStockAt !== null && product.quantity <= product.lowStockAt;
+  const dotClass = isOut ? "fill-low" : isLow ? "fill-warn" : "fill-ok";
+  const max = Math.max(product.lowStockAt ?? 10, product.quantity, 1);
+  const pct = Math.min(100, Math.round((product.quantity / max) * 100));
 
   return (
-    <table className="w-full">
-      <thead>
-        <tr style={{ borderBottom: "1px solid rgba(56,189,248,0.1)" }}>
-          {["Name", "SKU", "Price", "Quantity", "Low Stock At", "Actions"].map((h) => (
-            <th key={h} className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-widest"
-              style={{ color: "rgba(56,189,248,0.6)" }}>
-              {h}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((product) => {
-          const isEditing = editingId === product.id;
-          return (
-            <tr key={product.id}
-              style={{ borderBottom: "1px solid rgba(56,189,248,0.06)" }}
-              className="transition-colors hover:bg-[rgba(56,189,248,0.03)]">
+    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+      <span className={`dot-status ${dotClass}`} style={{ background: isOut ? "var(--red)" : isLow ? "var(--amber)" : "var(--accent)" }} />
+      <span className="stock-track">
+        <span className={`stock-fill ${dotClass}`} style={{ width: `${pct}%` }} />
+      </span>
+    </div>
+  );
+}
 
-              {/* Name */}
-              <td className="px-6 py-3 text-sm font-medium" style={{ color: "#e2e8f0" }}>
-                {isEditing ? (
-                  <input style={inputStyle} value={editValues.name ?? ""} onChange={e => setEditValues(v => ({ ...v, name: e.target.value }))} />
-                ) : product.name}
-              </td>
+function EditModal({ product, onClose, onSave }: { product: Product; onClose: () => void; onSave: (values: Partial<Product>) => Promise<void> }) {
+  const [values, setValues] = useState({
+    name: product.name, sku: product.sku ?? "", price: product.price,
+    quantity: product.quantity, lowStockAt: product.lowStockAt ?? "" as number | string,
+    category: product.category ?? "",
+  });
+  const [saving, setSaving] = useState(false);
 
-              {/* SKU */}
-              <td className="px-6 py-3 text-sm" style={{ color: "rgba(226,232,240,0.5)" }}>
-                {isEditing ? (
-                  <input style={inputStyle} value={editValues.sku ?? ""} onChange={e => setEditValues(v => ({ ...v, sku: e.target.value }))} placeholder="—" />
-                ) : (product.sku || "—")}
-              </td>
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    await onSave({
+      name: values.name,
+      price: values.price,
+      quantity: values.quantity,
+      sku: values.sku || null,
+      lowStockAt: values.lowStockAt !== "" ? Number(values.lowStockAt) : null,
+      category: values.category || null,
+    });
+    setSaving(false);
+    onClose();
+  }
 
-              {/* Price */}
-              <td className="px-6 py-3 text-sm font-medium" style={{ color: "#38bdf8" }}>
-                {isEditing ? (
-                  <input type="number" step="0.01" min="0" style={{ ...inputStyle, width: "80px" }}
-                    value={editValues.price ?? ""} onChange={e => setEditValues(v => ({ ...v, price: Number(e.target.value) }))} />
-                ) : `$${Number(product.price).toFixed(2)}`}
-              </td>
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div className="modal-title" style={{ flex: 1 }}>Edit Product</div>
+          <button onClick={onClose} className="btn-ghost" style={{ padding: "4px 8px", marginBottom: "18px" }}>
+            <X style={{ width: "13px", height: "13px" }} />
+          </button>
+        </div>
+        <form style={{ display: "flex", flexDirection: "column", gap: "14px" }} onSubmit={handleSubmit}>
+          <div>
+            <label className="form-label">Name</label>
+            <input className="input-field" value={values.name} onChange={e => setValues(v => ({ ...v, name: e.target.value }))} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <div>
+              <label className="form-label">Price</label>
+              <input type="number" step="0.01" min="0" className="input-field" value={values.price} onChange={e => setValues(v => ({ ...v, price: Number(e.target.value) }))} />
+            </div>
+            <div>
+              <label className="form-label">Quantity</label>
+              <input type="number" min="0" className="input-field" value={values.quantity} onChange={e => setValues(v => ({ ...v, quantity: Number(e.target.value) }))} />
+            </div>
+          </div>
+          <div>
+            <label className="form-label">SKU</label>
+            <input className="input-field" value={values.sku} onChange={e => setValues(v => ({ ...v, sku: e.target.value }))} placeholder="Optional" />
+          </div>
+          <div>
+            <label className="form-label">Low Stock Alert</label>
+            <input type="number" min="0" className="input-field" value={values.lowStockAt} onChange={e => setValues(v => ({ ...v, lowStockAt: e.target.value }))} placeholder="Optional" />
+          </div>
+          <div>
+            <label className="form-label">Category</label>
+            <input className="input-field" value={values.category} onChange={e => setValues(v => ({ ...v, category: e.target.value }))} placeholder="e.g. Electronics" />
+          </div>
+          <div style={{ display: "flex", gap: "10px", paddingTop: "4px" }}>
+            <button type="submit" disabled={saving} className="btn-accent" style={{ flex: 1, justifyContent: "center", opacity: saving ? 0.7 : 1 }}>
+              {saving ? <Loader2 style={{ width: "12px", height: "12px", animation: "spin 1s linear infinite" }} /> : <Check style={{ width: "12px", height: "12px" }} />}
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button type="button" onClick={onClose} className="btn-ghost" style={{ flex: 1, justifyContent: "center" }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
-              {/* Quantity */}
-              <td className="px-6 py-3 text-sm" style={{ color: "#e2e8f0" }}>
-                {isEditing ? (
-                  <input type="number" min="0" style={{ ...inputStyle, width: "70px" }}
-                    value={editValues.quantity ?? ""} onChange={e => setEditValues(v => ({ ...v, quantity: Number(e.target.value) }))} />
-                ) : product.quantity}
-              </td>
+export default function InventoryTable({ items, onDelete, onUpdate }: InventoryTableProps) {
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-              {/* Low Stock At */}
-              <td className="px-6 py-3 text-sm" style={{ color: "rgba(226,232,240,0.5)" }}>
-                {isEditing ? (
-                  <input type="number" min="0" style={{ ...inputStyle, width: "70px" }}
-                    value={editValues.lowStockAt ?? ""} onChange={e => setEditValues(v => ({ ...v, lowStockAt: e.target.value ? Number(e.target.value) : undefined }))} placeholder="—" />
-                ) : (product.lowStockAt || "—")}
-              </td>
+  if (items.length === 0) {
+    return (
+      <div style={{ padding: "64px 24px", textAlign: "center", color: "var(--text-3)", fontSize: "12px" }}>
+        No products found
+      </div>
+    );
+  }
 
-              {/* Actions */}
-              <td className="px-6 py-3 text-sm">
-                {isEditing ? (
-                  <div className="flex gap-2">
-                    <form action={async () => {
-                      const fd = new FormData();
-                      fd.append("id", product.id);
-                      fd.append("name", String(editValues.name ?? product.name));
-                      fd.append("price", String(editValues.price ?? product.price));
-                      fd.append("quantity", String(editValues.quantity ?? product.quantity));
-                      if (editValues.sku) fd.append("sku", editValues.sku);
-                      if (editValues.lowStockAt != null) fd.append("lowStockAt", String(editValues.lowStockAt));
-                      await updateProduct(fd);
-                    }}>
-                      <button type="submit"
-                        className="text-xs font-semibold px-3 py-1 rounded transition-opacity hover:opacity-80"
-                        style={{ color: "#38bdf8", border: "1px solid rgba(56,189,248,0.3)", background: "rgba(56,189,248,0.08)" }}>
-                        Save
-                      </button>
-                    </form>
-                    <button onClick={cancelEdit}
-                      className="text-xs font-semibold px-3 py-1 rounded transition-opacity hover:opacity-80"
-                      style={{ color: "rgba(226,232,240,0.5)", border: "1px solid rgba(226,232,240,0.15)", background: "rgba(226,232,240,0.05)" }}>
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <button onClick={() => startEdit(product)}
-                      className="text-xs font-semibold px-3 py-1 rounded transition-opacity hover:opacity-80"
-                      style={{ color: "#a855f7", border: "1px solid rgba(168,85,247,0.3)", background: "rgba(168,85,247,0.05)" }}>
-                      Edit
-                    </button>
-                    <form action={async (formData: FormData) => {
-                      await deleteProduct(formData);
-                    }}>
-                      <input type="hidden" name="id" value={product.id} />
-                      <button type="submit"
-                        className="text-xs font-semibold px-3 py-1 rounded transition-opacity hover:opacity-80"
-                        style={{ color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.05)" }}>
-                        Delete
-                      </button>
-                    </form>
-                  </div>
-                )}
-              </td>
-            </tr>
-          );
-        })}
-        {items.length === 0 && (
+  return (
+    <>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      <table className="data-table">
+        <thead>
           <tr>
-            <td colSpan={6} className="px-6 py-12 text-center text-sm" style={{ color: "rgba(226,232,240,0.3)" }}>
-              No products found
-            </td>
+            <th>Product</th>
+            <th>Category</th>
+            <th style={{ textAlign: "right" }}>Stock</th>
+            <th style={{ textAlign: "right" }}>Threshold</th>
+            <th style={{ textAlign: "right" }}>Value</th>
+            <th>Status</th>
+            <th>Actions</th>
           </tr>
-        )}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {items.map(product => {
+            const isOut = product.quantity === 0;
+            const isLow = !isOut && product.lowStockAt !== null && product.quantity <= product.lowStockAt;
+            const statusLabel = isOut ? "OUT" : isLow ? "LOW" : "IN STOCK";
+            const badgeClass = isOut ? "badge badge-low" : isLow ? "badge badge-warn" : "badge badge-ok";
+
+            return (
+              <tr key={product.id}>
+                <td>
+                  <div style={{ fontWeight: 500, color: "var(--text-1)" }}>{product.name}</div>
+                  {product.sku && <div className="tag-mono" style={{ marginTop: "3px", display: "inline-block" }}>{product.sku}</div>}
+                </td>
+                <td>
+                  {product.category
+                    ? <span className="tag-mono" style={{ fontSize: "11px", color: "var(--text-2)" }}>{product.category}</span>
+                    : <span style={{ color: "var(--text-3)", fontSize: "11px" }}>—</span>
+                  }
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <span className="mono text-1" style={{ fontSize: "13px" }}>{product.quantity}</span>
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <span className="mono text-2" style={{ fontSize: "12px" }}>{product.lowStockAt ?? "—"}</span>
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <span className="mono text-2" style={{ fontSize: "12px" }}>${(product.price * product.quantity).toFixed(2)}</span>
+                </td>
+                <td>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <StatusCell product={product} />
+                    <span className={badgeClass}>{statusLabel}</span>
+                  </div>
+                </td>
+                <td>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      onClick={() => setEditingProduct(product)}
+                      className="btn-ghost"
+                      style={{ padding: "4px 8px" }}
+                      title="Edit"
+                    >
+                      <Pencil style={{ width: "12px", height: "12px" }} />
+                    </button>
+                    <button
+                      onClick={() => { if (confirm(`Delete "${product.name}"?`)) onDelete(product.id); }}
+                      className="btn-ghost"
+                      style={{ padding: "4px 8px", color: "var(--red)", borderColor: "rgba(255,68,68,0.25)" }}
+                      title="Delete"
+                    >
+                      <Trash2 style={{ width: "12px", height: "12px" }} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {editingProduct && (
+        <EditModal
+          product={editingProduct}
+          onClose={() => setEditingProduct(null)}
+          onSave={async (values) => { await onUpdate(editingProduct.id, values); }}
+        />
+      )}
+    </>
   );
 }

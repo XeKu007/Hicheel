@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { stackServerApp } from "@/stack/server";
 import { getOrgContext, requireRole, invalidateOrgContext } from "@/lib/org";
 import { invalidateCache } from "@/lib/redis";
+import { SUPPORTED_CURRENCIES } from "@/lib/i18n/currency";
 
 // ─── Validation ──────────────────────────────────────────────────────────────
 
@@ -14,6 +15,8 @@ const OrgNameSchema = z
   .trim()
   .min(1, "Organization name is required")
   .max(100, "Organization name must be 100 characters or less");
+
+const CurrencySchema = z.enum(SUPPORTED_CURRENCIES as unknown as [string, ...string[]]);
 
 const EmailSchema = z.string().email("Invalid email address");
 
@@ -47,7 +50,7 @@ export async function createOrganization(
   // Validate org name
   const nameResult = OrgNameSchema.safeParse(formData.get("name"));
   if (!nameResult.success) {
-    return { error: nameResult.error.errors[0].message };
+    return { error: nameResult.error.issues[0].message };
   }
   const name = nameResult.data;
 
@@ -84,6 +87,8 @@ export async function createOrganization(
           userId: user.id,
           organizationId: org.id,
           role: "MANAGER",
+          displayName: user.displayName ?? null,
+          email: user.primaryEmail ?? null,
         },
       });
     });
@@ -113,7 +118,7 @@ export async function inviteMember(
   // Validate email
   const emailResult = EmailSchema.safeParse(formData.get("email"));
   if (!emailResult.success) {
-    return { error: emailResult.error.errors[0].message };
+    return { error: emailResult.error.issues[0].message };
   }
   const email = emailResult.data.toLowerCase();
 
@@ -125,24 +130,13 @@ export async function inviteMember(
     return { error: "An invitation has already been sent to this email address." };
   }
 
-  // Check if already a member via Stack Auth email
-  const allMembers = await prisma.member.findMany({
-    where: { organizationId: ctx.organizationId },
+  // Check if already a member — use invitation table instead of Stack Auth loop
+  const existingMemberByEmail = await prisma.invitation.findFirst({
+    where: { email, organizationId: ctx.organizationId, status: "ACCEPTED" },
   });
-  for (const member of allMembers) {
-    try {
-      const memberUser = await stackServerApp.getUser(member.userId);
-      if (memberUser?.primaryEmail?.toLowerCase() === email) {
-        return { error: "This user is already a member of your organization." };
-      }
-    } catch {}
+  if (existingMemberByEmail) {
+    return { error: "This user is already a member of your organization." };
   }
-
-  // Get org name for display
-  const org = await prisma.organization.findUnique({
-    where: { id: ctx.organizationId },
-    select: { name: true },
-  });
 
   // Save invitation to DB only (no Stack Auth email)
   await prisma.invitation.upsert({
@@ -171,11 +165,12 @@ export async function getPendingInvitesForUser(): Promise<
 
   const email = user.primaryEmail.toLowerCase();
 
+  type InviteWithOrg = { id: string; organizationId: string; createdAt: Date; organization: { name: string } };
   const invites = await prisma.invitation.findMany({
     where: { email, status: "PENDING" },
     include: { organization: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
-  });
+  }) as unknown as InviteWithOrg[];
 
   return invites.map((inv) => ({
     id: inv.id,
@@ -214,8 +209,13 @@ export async function acceptInvite(inviteId: string): Promise<ActionResult> {
         userId: user.id,
         organizationId: invite.organizationId,
         role: "STAFF",
+        displayName: user.displayName ?? null,
+        email: user.primaryEmail ?? null,
       },
-      update: {},
+      update: {
+        displayName: user.displayName ?? null,
+        email: user.primaryEmail ?? null,
+      },
     });
 
     await tx.invitation.update({
@@ -224,7 +224,7 @@ export async function acceptInvite(inviteId: string): Promise<ActionResult> {
     });
   });
 
-  await invalidateCache([`org:${invite.organizationId}:*`]);
+  await invalidateCache([`org:${invite.organizationId}:*`, `org:${invite.organizationId}:members`]);
   await invalidateOrgContext(user.id);
 
   redirect("/dashboard");
@@ -236,28 +236,68 @@ export async function getMembers(): Promise<MemberWithProfile[]> {
   const ctx = await getOrgContext();
   requireRole(ctx, "STAFF");
 
+  const cacheKey = `org:${ctx.organizationId}:members`;
+
+  try {
+    const { redis } = await import("@/lib/redis");
+    const cached = await redis.get<MemberWithProfile[]>(cacheKey);
+    if (cached) return cached;
+  } catch {}
+
   const members = await prisma.member.findMany({
     where: { organizationId: ctx.organizationId },
     orderBy: { createdAt: "asc" },
+    select: { id: true, userId: true, role: true, displayName: true, email: true, createdAt: true },
   });
 
-  // Batch fetch Stack Auth profiles in parallel
-  const profiles = await Promise.allSettled(
-    members.map((m) => stackServerApp.getUser(m.userId))
-  );
+  // Only fetch from Stack Auth if members are missing profile data
+  // Do this fire-and-forget to not block the response
+  const needsUpdate = members.filter((m) => !m.displayName && !m.email);
+  if (needsUpdate.length > 0) {
+    // Fire-and-forget: update DB in background, don't block response
+    // Snapshot the IDs to avoid mutating the array that's already been mapped
+    const idsToUpdate = needsUpdate.map(m => m.id);
+    void (async () => {
+      try {
+        const profiles = await Promise.allSettled(
+          needsUpdate.map((m) => stackServerApp.getUser(m.userId))
+        );
+        await Promise.allSettled(
+          needsUpdate.map(async (m, i) => {
+            // eslint-disable-next-line security/detect-object-injection
+            const res = profiles[i];
+            const u = res.status === "fulfilled" ? res.value : null;
+            if (u) {
+              await prisma.member.update({
+                where: { id: m.id },
+                data: { displayName: u.displayName ?? null, email: u.primaryEmail ?? null },
+              });
+            }
+          })
+        );
+        // Invalidate cache so next request gets fresh data
+        const { redis: r } = await import("@/lib/redis");
+        await r.del(`org:${ctx.organizationId}:members`).catch(() => {});
+      } catch {}
+      void idsToUpdate; // suppress unused warning
+    })();
+  }
 
-  return members.map((m, i) => {
-    const result = profiles[i];
-    const u = result.status === "fulfilled" ? result.value : null;
-    return {
-      id: m.id,
-      userId: m.userId,
-      role: m.role,
-      displayName: u?.displayName ?? null,
-      email: u?.primaryEmail ?? null,
-      createdAt: m.createdAt,
-    };
-  });
+  const result: MemberWithProfile[] = members.map((m) => ({
+    id: m.id,
+    userId: m.userId,
+    role: m.role,
+    displayName: m.displayName,
+    email: m.email,
+    createdAt: m.createdAt,
+  }));
+
+  try {
+    const { redis } = await import("@/lib/redis");
+    await redis.setex(cacheKey, 120, result);
+  } catch {}
+
+  return result;
 }
 
 // ─── removeMemberRequest ─────────────────────────────────────────────────────
@@ -303,6 +343,29 @@ export async function removeMemberRequest(
       status: "PENDING",
     },
   });
+
+  return { success: true };
+}
+
+// ─── updateOrgCurrency ───────────────────────────────────────────────────────
+
+export async function updateOrgCurrency(
+  formData: FormData
+): Promise<ActionResult> {
+  const ctx = await getOrgContext();
+  requireRole(ctx, "MANAGER");
+
+  const currencyResult = CurrencySchema.safeParse(formData.get("currency"));
+  if (!currencyResult.success) {
+    return { error: "Unsupported currency code." };
+  }
+
+  await prisma.organization.update({
+    where: { id: ctx.organizationId },
+    data: { currency: currencyResult.data },
+  });
+
+  await invalidateOrgContext(ctx.userId);
 
   return { success: true };
 }

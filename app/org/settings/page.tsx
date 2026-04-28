@@ -1,34 +1,38 @@
 import Sidebar from "@/components/sidebar";
+import AlertBell from "@/components/alert-bell";
 import { getOrgContext, requireRole } from "@/lib/org";
 import { prisma } from "@/lib/prisma";
-import { deleteOrganization } from "@/lib/actions/org";
+import { getCached, invalidateCache, TTL } from "@/lib/redis";
+import { deleteOrganization, updateOrgCurrency } from "@/lib/actions/org";
+import { SUPPORTED_CURRENCIES } from "@/lib/i18n/currency";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import BillingStatus from "@/components/billing-status";
+import type { Plan } from "@/lib/billing";
 
-const cardStyle = {
-  background: "rgba(13,13,26,0.8)",
-  border: "1px solid rgba(56,189,248,0.15)",
-  borderRadius: "12px",
-};
-
-const inputStyle = {
-  background: "rgba(56,189,248,0.05)",
-  border: "1px solid rgba(56,189,248,0.2)",
-  color: "#e2e8f0",
-  borderRadius: "8px",
+const CURRENCY_LABELS: Record<string, string> = {
+  MNT: "MNT — Mongolian Tögrög (₮)",
+  USD: "USD — US Dollar ($)",
+  EUR: "EUR — Euro (€)",
+  CNY: "CNY — Chinese Yuan (¥)",
+  JPY: "JPY — Japanese Yen (¥)",
+  KRW: "KRW — South Korean Won (₩)",
+  GBP: "GBP — British Pound (£)",
 };
 
 export default async function OrgSettingsPage() {
   const ctx = await getOrgContext();
   requireRole(ctx, "MANAGER");
 
-  const org = await prisma.organization.findUnique({
-    where: { id: ctx.organizationId },
-  });
+  const org = await getCached(
+    `org:${ctx.organizationId}:settings`,
+    () => prisma.organization.findUnique({ where: { id: ctx.organizationId } }),
+    TTL.MEDIUM
+  );
 
   if (!org) return <div>Organization not found.</div>;
 
-  async function updateOrgName(formData: FormData) {
+  async function updateOrgName(formData: FormData): Promise<void> {
     "use server";
     const innerCtx = await getOrgContext();
     requireRole(innerCtx, "MANAGER");
@@ -38,90 +42,129 @@ export default async function OrgSettingsPage() {
       where: { id: innerCtx.organizationId },
       data: { name: nameResult.data },
     });
+    void invalidateCache([`org:${innerCtx.organizationId}:settings`]).catch(() => {});
     revalidatePath("/org/settings");
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "#0a0a0f" }}>
-      <Sidebar currentPath="/org/settings" orgName={ctx.orgName ?? org.name} role={ctx.role} />
-      <main className="ml-64 p-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold" style={{ color: "#e2e8f0" }}>Organization Settings</h1>
-          <p className="text-sm mt-1" style={{ color: "rgba(226,232,240,0.5)" }}>
-            Manage your organization details.
-          </p>
+    <div className="app-shell">
+      <Sidebar currentPath="/org/settings" orgName={ctx.orgName ?? org.name} role={ctx.role} locale={ctx.locale}
+        alertBell={<AlertBell />}
+        userName={ctx.userName} userEmail={ctx.userEmail} userAvatar={ctx.userAvatar} />
+      <div className="content-wrap">
+        <div className="topbar">
+          <span className="topbar-brand">StockFlow</span>
+          <span className="topbar-sep">/</span>
+          <span className="topbar-page">Org Settings</span>
         </div>
+        <div className="page-main">
+          <div className="page-content" style={{ padding: "20px", gap: "16px", display: "flex", flexDirection: "column" }}>
 
-        <div className="max-w-xl space-y-6">
-          {/* Org name */}
-          <div style={cardStyle} className="p-6">
-            <h2 className="text-sm font-semibold uppercase tracking-widest mb-4" style={{ color: "rgba(56,189,248,0.7)" }}>
-              Organization Name
-            </h2>
-            <form action={updateOrgName} className="space-y-4">
-              <input
-                type="text"
-                name="name"
-                defaultValue={org.name}
-                required
-                maxLength={100}
-                className="w-full px-4 py-2.5 text-sm outline-none"
-                style={inputStyle}
-              />
-              <button
-                type="submit"
-                className="px-6 py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
-                style={{ background: "linear-gradient(90deg, #38bdf8, #7c3aed)", color: "white" }}
-              >
-                Save Changes
-              </button>
-            </form>
-          </div>
+            {/* Org Name */}
+            <div className="card" style={{ padding: "20px", maxWidth: "480px" }}>
+              <div className="section-header" style={{ margin: "-20px -20px 16px", borderRadius: "7px 7px 0 0" }}>Organization Name</div>
+              <form action={updateOrgName} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <div>
+                  <label className="form-label">Name</label>
+                  <input
+                    type="text"
+                    name="name"
+                    defaultValue={org.name}
+                    required
+                    maxLength={100}
+                    className="input-field"
+                  />
+                </div>
+                <button type="submit" className="btn-accent" style={{ alignSelf: "flex-start" }}>
+                  Save Changes
+                </button>
+              </form>
+            </div>
 
-          {/* Org info */}
-          <div style={cardStyle} className="p-6">
-            <h2 className="text-sm font-semibold uppercase tracking-widest mb-4" style={{ color: "rgba(56,189,248,0.7)" }}>
-              Organization Info
-            </h2>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span style={{ color: "rgba(226,232,240,0.5)" }}>Organization ID</span>
-                <span className="font-mono text-xs" style={{ color: "#38bdf8" }}>{org.id}</span>
-              </div>
-              <div className="flex justify-between">
-                <span style={{ color: "rgba(226,232,240,0.5)" }}>Created</span>
-                <span style={{ color: "#e2e8f0" }}>{new Date(org.createdAt).toLocaleDateString()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span style={{ color: "rgba(226,232,240,0.5)" }}>Your Role</span>
-                <span style={{ color: "#a855f7" }}>{ctx.role}</span>
+            {/* Org Info */}
+            <div className="card" style={{ padding: "20px", maxWidth: "480px" }}>
+              <div className="section-header" style={{ margin: "-20px -20px 16px", borderRadius: "7px 7px 0 0" }}>Organization Info</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", fontSize: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span className="text-2">Organization ID</span>
+                  <span className="mono text-accent" style={{ fontSize: "11px" }}>{org.id}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span className="text-2">Created</span>
+                  <span className="text-1">{new Date(org.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span className="text-2">Your Role</span>
+                  <span className="badge badge-ok">{ctx.role}</span>
+                </div>
               </div>
             </div>
-          </div>
-          {/* Danger zone */}
-          <div style={{ ...cardStyle, border: "1px solid rgba(239,68,68,0.3)" }} className="p-6">
-            <h2 className="text-sm font-semibold uppercase tracking-widest mb-2" style={{ color: "#ef4444" }}>
-              Danger Zone
-            </h2>
-            <p className="text-sm mb-4" style={{ color: "rgba(226,232,240,0.5)" }}>
-              Deleting the organization will permanently remove all members, products, and data. This cannot be undone.
-            </p>
-            <form action={deleteOrganization}>
-              <button
-                type="submit"
-                className="px-6 py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
-                style={{
-                  color: "#ef4444",
-                  border: "1px solid rgba(239,68,68,0.4)",
-                  background: "rgba(239,68,68,0.08)",
-                }}
-              >
-                Delete Organization
-              </button>
-            </form>
+
+            {/* Display Currency */}
+            <div className="card" style={{ padding: "20px", maxWidth: "480px" }}>
+              <div className="section-header" style={{ margin: "-20px -20px 16px", borderRadius: "7px 7px 0 0" }}>Display Currency</div>
+              <form action={async (formData: FormData) => { "use server"; await updateOrgCurrency(formData); }} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <div>
+                  <label className="form-label">Currency</label>
+                  <select
+                    name="currency"
+                    defaultValue={org.currency}
+                    className="input-field"
+                  >
+                    {SUPPORTED_CURRENCIES.map((code) => (
+                      <option key={code} value={code}>
+                        {/* eslint-disable-next-line security/detect-object-injection */}
+                        {CURRENCY_LABELS[code]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button type="submit" className="btn-accent" style={{ alignSelf: "flex-start" }}>
+                  Save Currency
+                </button>
+              </form>
+            </div>
+
+            {/* Billing */}
+            <div style={{ maxWidth: "480px" }}>
+              <BillingStatus
+                plan={(org.plan ?? "STARTER") as Plan}
+                stripeSubscriptionStatus={
+                  typeof org.stripeSubscriptionStatus === "string"
+                    ? org.stripeSubscriptionStatus
+                    : null
+                }
+                planExpiresAt={
+                  org.planExpiresAt instanceof Date
+                    ? org.planExpiresAt
+                    : null
+                }
+                isManager={true}
+              />
+            </div>
+
+            {/* Danger Zone */}
+            <div className="card" style={{ padding: "20px", maxWidth: "480px", border: "1px solid rgba(255,68,68,0.3)" }}>
+              <div className="section-header" style={{ margin: "-20px -20px 16px", borderRadius: "7px 7px 0 0", color: "var(--red)", borderColor: "rgba(255,68,68,0.2)" }}>
+                Danger Zone
+              </div>
+              <p className="text-2" style={{ fontSize: "12px", marginBottom: "14px" }}>
+                Deleting the organization will permanently remove all members, products, and data. This cannot be undone.
+              </p>
+              <form action={async () => { "use server"; await deleteOrganization(); }}>
+                <button
+                  type="submit"
+                  className="btn-ghost"
+                  style={{ color: "var(--red)", borderColor: "rgba(255,68,68,0.3)" }}
+                >
+                  Delete Organization
+                </button>
+              </form>
+            </div>
+
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
