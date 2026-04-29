@@ -12,12 +12,6 @@ import type { OrgContext } from "@/lib/org";
 export async function GET(request: NextRequest) {
   const origin = request.nextUrl.origin;
 
-  // Override with explicit return_to param if present
-  const returnTo = request.nextUrl.searchParams.get("after_auth_return_to");
-  if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
-    return NextResponse.redirect(`${origin}${returnTo}`);
-  }
-
   try {
     const user = await stackServerApp.getUser();
     if (!user) {
@@ -31,7 +25,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!member || !member.organization) {
-      // No org — go to onboarding
+      // No org — go to onboarding regardless of return_to
       return NextResponse.redirect(`${origin}/onboarding`);
     }
 
@@ -50,9 +44,14 @@ export async function GET(request: NextRequest) {
     };
     redis.setex(`user:${user.id}:orgContext`, 1800, ctx).catch(() => {});
 
+    // Only honor return_to if user has an org (otherwise loop risk)
+    const returnTo = request.nextUrl.searchParams.get("after_auth_return_to");
+    if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) {
+      return NextResponse.redirect(`${origin}${returnTo}`);
+    }
+
     return NextResponse.redirect(`${origin}/dashboard`);
   } catch {
-    // Fallback — go to dashboard and let it handle the redirect
     return NextResponse.redirect(`${origin}/dashboard`);
   }
 }
