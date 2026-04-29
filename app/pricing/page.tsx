@@ -26,7 +26,7 @@ const plans = [
   },
   {
     name: "Pro",
-    price: "$29",
+    price: "$9.99",
     period: "/mo",
     desc: "For growing teams that need more power",
     color: "rgba(200,240,0,0.04)",
@@ -47,8 +47,8 @@ const plans = [
   },
   {
     name: "Enterprise",
-    price: "Custom",
-    period: "",
+    price: "$39.90",
+    period: "/mo",
     desc: "For large organizations with custom needs",
     color: "rgba(0,112,246,0.04)",
     border: "rgba(0,112,246,0.3)",

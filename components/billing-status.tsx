@@ -17,8 +17,8 @@ const PLAN_LABELS: Record<Plan, string> = {
 
 const PLAN_PRICES: Record<Plan, string> = {
   STARTER:    "Free",
-  PRO:        "$29/mo",
-  ENTERPRISE: "$100/mo",
+  PRO:        "$9.99/mo",
+  ENTERPRISE: "$39.90/mo",
 };
 
 function formatDate(date: Date | null): string {
