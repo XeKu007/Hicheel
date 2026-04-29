@@ -159,9 +159,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // ── Honeypot IP блок шалгалт ─────────────────────────────────────────────
+  // ── Honeypot IP блок шалгалт — зөвхөн API болон POST request-д ─────────────
   const ip = getClientIp(request);
-  if (ip !== "unknown") {
+  const isApiOrPost = pathname.startsWith("/api/") || request.method === "POST";
+  if (ip !== "unknown" && isApiOrPost) {
     const blocked = await isHoneypotBlocked(ip);
     if (blocked) {
       // Блоклогдсон IP-д хуурамч 404 буцаана — bot-д мэдэгдэхгүй
