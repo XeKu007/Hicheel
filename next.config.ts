@@ -43,8 +43,9 @@ const nextConfig: NextConfig = {
       // Images: self + Supabase storage + Google avatars + GitHub raw (Stack Auth changelog) + data URIs
       `img-src 'self' data: blob: https://fcsyffcqddphhmhtbeoq.supabase.co https://lh3.googleusercontent.com https://raw.githubusercontent.com https://avatars.githubusercontent.com${isDev ? " https://*.stack-auth.com" : ""}`,
       // Connections: self + Stack Auth (all subdomains for dev tool) + Supabase + Upstash + Stripe
+      // Stack Auth network diagnostics uses 1.1.1.1/cdn-cgi/trace to detect connectivity issues
       // Dev: also allow npmjs.org (Stack Auth dev tool checks for package updates)
-      `connect-src 'self' https://api.stack-auth.com https://*.stack-auth.com${isDev ? " https://registry.npmjs.org" : ""} https://fcsyffcqddphhmhtbeoq.supabase.co https://*.upstash.io https://api.stripe.com`,
+      `connect-src 'self' https://api.stack-auth.com https://*.stack-auth.com https://r.stack-auth.com https://1.1.1.1${isDev ? " https://registry.npmjs.org" : ""} https://fcsyffcqddphhmhtbeoq.supabase.co https://*.upstash.io https://api.stripe.com`,
       // Frames: only Stripe (for payment elements)
       "frame-src https://js.stripe.com https://hooks.stripe.com",
       // Media

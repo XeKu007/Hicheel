@@ -4,7 +4,8 @@ import CssBg from "@/components/css-bg";
 import { Check } from "lucide-react";
 import { CheckoutButton } from "@/components/pricing-buttons";
 
-const stripeEnabled = process.env.STRIPE_ENABLED === "true";
+// Stripe is enabled if the secret key is configured (works on Vercel without extra env var)
+const stripeEnabled = !!(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRO_PRICE_ID);
 
 const plans = [
   {

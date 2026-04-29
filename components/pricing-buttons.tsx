@@ -20,7 +20,7 @@ export function CheckoutButton({
   if (!stripeEnabled) {
     return (
       <a
-        href="mailto:hello@stockflow.app?subject=Upgrade to Pro"
+        href={`mailto:hello@stockflow.app?subject=Upgrade to ${plan}`}
         style={{
           display: "flex", alignItems: "center", justifyContent: "center",
           width: "100%", padding: "10px 0", borderRadius: 7,

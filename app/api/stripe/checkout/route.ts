@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   if (limited) return limited;
 
   // Stripe not configured — return informative error
-  if (process.env.STRIPE_ENABLED === "false" || !process.env.STRIPE_SECRET_KEY) {
+  if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PRO_PRICE_ID) {
     return NextResponse.json(
       { error: "Billing is not yet available. Please contact us to upgrade your plan." },
       { status: 503 }
