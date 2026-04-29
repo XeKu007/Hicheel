@@ -17,7 +17,6 @@ const PROTECTED_PREFIXES = [
   "/agent",
   "/ai",
   "/admin",
-  "/onboarding",
 ];
 
 // ── App-level WAF ─────────────────────────────────────────────────────────────
@@ -234,8 +233,6 @@ export const config = {
     "/agent/:path*",
     "/ai/:path*",
     "/admin/:path*",
-    "/onboarding/:path*",
-    "/onboarding",
     // Honeypot endpoint — always check
     "/api/honeypot",
   ],
