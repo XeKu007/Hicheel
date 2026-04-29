@@ -31,6 +31,7 @@ export default function InventoryClient({
   isManager,
   categories = [],
   uncategorizedCount = 0,
+  canUseGallery = false,
 }: {
   initialItems: Product[];
   initialTotal: number;
@@ -39,6 +40,7 @@ export default function InventoryClient({
   isManager: boolean;
   categories?: CategoryItem[];
   uncategorizedCount?: number;
+  canUseGallery?: boolean;
 }) {
   const pageSize = 10;
   const [q, setQ] = useState(initialQ);
@@ -359,14 +361,16 @@ export default function InventoryClient({
             </select>
           )}
           <ExportButton isManager={isManager} />
-          <button
-            className="btn-ghost"
-            onClick={() => setViewMode(viewMode === "table" ? "gallery" : "table")}
-            title={viewMode === "table" ? "Gallery view" : "Table view"}
-            style={{ padding: "5px 10px" }}
-          >
-            {viewMode === "table" ? <LayoutGrid size={14} /> : <LayoutList size={14} />}
-          </button>
+          {canUseGallery && (
+            <button
+              className="btn-ghost"
+              onClick={() => setViewMode(viewMode === "table" ? "gallery" : "table")}
+              title={viewMode === "table" ? "Gallery view" : "Table view"}
+              style={{ padding: "5px 10px" }}
+            >
+              {viewMode === "table" ? <LayoutGrid size={14} /> : <LayoutList size={14} />}
+            </button>
+          )}
           <Link href="/add-product" className="btn-accent">
             <Plus style={{ width: "12px", height: "12px" }} /> Add Product
           </Link>

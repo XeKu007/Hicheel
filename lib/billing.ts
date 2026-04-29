@@ -117,7 +117,68 @@ export function planFromPriceId(priceId: string): Plan {
   return "STARTER";
 }
 
-// ─── Limit error builder ──────────────────────────────────────────────────────
+// ─── Plan feature gates ───────────────────────────────────────────────────────
+
+/**
+ * Features available per plan.
+ * STARTER gets basic features only.
+ * PRO/ENTERPRISE get all features.
+ */
+export const PLAN_FEATURES = {
+  STARTER: {
+    galleryView: false,
+    dailyDigest: false,
+    auditLog: false,
+    anomalyAlerts: false,
+    multiCurrency: false,
+    advancedAlerts: false,
+    csvExport: true,
+    basicAlerts: true,
+  },
+  PRO: {
+    galleryView: true,
+    dailyDigest: true,
+    auditLog: true,
+    anomalyAlerts: true,
+    multiCurrency: true,
+    advancedAlerts: true,
+    csvExport: true,
+    basicAlerts: true,
+  },
+  ENTERPRISE: {
+    galleryView: true,
+    dailyDigest: true,
+    auditLog: true,
+    anomalyAlerts: true,
+    multiCurrency: true,
+    advancedAlerts: true,
+    csvExport: true,
+    basicAlerts: true,
+  },
+} as const;
+
+export type PlanFeature = keyof typeof PLAN_FEATURES.STARTER;
+
+export function hasFeature(plan: Plan, feature: PlanFeature): boolean {
+  // eslint-disable-next-line security/detect-object-injection
+  const features = PLAN_FEATURES[plan] ?? PLAN_FEATURES.STARTER;
+  // eslint-disable-next-line security/detect-object-injection
+  return features[feature] ?? false;
+}
+
+/**
+ * Gets the plan for an organization from the database.
+ */
+export async function getOrgPlan(organizationId: string): Promise<Plan> {
+  const { prisma } = await import("@/lib/prisma");
+  const org = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { plan: true },
+  });
+  return (org?.plan ?? "STARTER") as Plan;
+}
+
+
 
 const RESOURCE_LABELS: Record<string, string> = {
   members:    "team members",

@@ -7,6 +7,7 @@ import { getOrgContext } from "@/lib/org";
 import { prisma } from "@/lib/prisma";
 import { getCached, TTL } from "@/lib/redis";
 import { formatCurrency } from "@/lib/i18n/currency";
+import { getOrgPlan, hasFeature } from "@/lib/billing";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -60,15 +61,17 @@ export default async function DashboardPage() {
   const ctx = await ctxPromise;
   const { organizationId, role, orgName = "", locale } = ctx;
 
-  // Fetch dashboard data + unread alert count in parallel
-  const [{ totalProducts, lowStock, outOfStockCount, totalValue, inStockCount, recent, weeklyRaw }, unreadCount] = await Promise.all([
+  const [{ totalProducts, lowStock, outOfStockCount, totalValue, inStockCount, recent, weeklyRaw }, unreadCount, plan] = await Promise.all([
     getDashboardData(organizationId, orgName),
     getCached(
       `org:${organizationId}:alerts:unread_count`,
       () => prisma.alert.count({ where: { organizationId, status: "UNREAD" } }),
       TTL.SHORT
     ).catch(() => 0),
+    getOrgPlan(organizationId),
   ]);
+
+  const canUseDigest = hasFeature(plan, "dailyDigest");
 
   const inStockPct = totalProducts > 0 ? Math.round((inStockCount / totalProducts) * 100) : 0;
 
@@ -135,8 +138,8 @@ export default async function DashboardPage() {
                 </TiltCard>
               ))}
             </div>
-            {/* Digest card — MANAGER/SUPER_ADMIN only */}
-            {(role === "MANAGER" || role === "SUPER_ADMIN") && (
+            {/* Digest card — MANAGER/SUPER_ADMIN + PRO/ENTERPRISE only */}
+            {canUseDigest && (role === "MANAGER" || role === "SUPER_ADMIN") && (
               <Suspense fallback={null}>
                 <DigestCard organizationId={organizationId} />
               </Suspense>

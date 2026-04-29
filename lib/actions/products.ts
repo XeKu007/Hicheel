@@ -115,10 +115,13 @@ export async function maybeCreateAlerts(
   // ── Anomaly check ────────────────────────────────────────────────────────
   if (previousQty > 0 && newQty < previousQty) {
     const drop = (previousQty - newQty) / previousQty;
-    // Trigger alert when drop is 30% or more (>= 0.3)
+    // Trigger alert when drop is 30% or more (>= 0.3) — PRO feature only
     if (drop >= 0.3) {
       tasks.push(
         (async () => {
+          const { getOrgPlan, hasFeature } = await import("@/lib/billing");
+          const plan = await getOrgPlan(organizationId);
+          if (!hasFeature(plan, "anomalyAlerts")) return false;
           await prisma.alert.create({
             data: {
               organizationId,

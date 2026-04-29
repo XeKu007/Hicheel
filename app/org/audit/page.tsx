@@ -3,6 +3,7 @@ import AlertBell from "@/components/alert-bell";
 import { getOrgContext, requireRole } from "@/lib/org";
 import { getAuditLogs } from "@/lib/actions/audit";
 import type { AuditActionType, AuditEntityType } from "@/lib/actions/audit";
+import { getOrgPlan, hasFeature } from "@/lib/billing";
 import Link from "next/link";
 
 const ACTION_BADGE: Record<AuditActionType, string> = {
@@ -37,6 +38,32 @@ export default async function AuditPage({
 }) {
   const [ctx, params] = await Promise.all([getOrgContext(), searchParams]);
   requireRole(ctx, "MANAGER");
+
+  const plan = await getOrgPlan(ctx.organizationId);
+  if (!hasFeature(plan, "auditLog")) {
+    return (
+      <div className="app-shell">
+        <Sidebar currentPath="/org/audit" orgName={ctx.orgName} role={ctx.role} locale={ctx.locale}
+          alertBell={<AlertBell />}
+          userName={ctx.userName} userEmail={ctx.userEmail} userAvatar={ctx.userAvatar} />
+        <div className="content-wrap">
+          <div className="topbar">
+            <span className="topbar-brand">StockFlow</span>
+            <span className="topbar-sep">/</span>
+            <span className="topbar-page">Audit Log</span>
+          </div>
+          <div className="page-main">
+            <div className="page-content" style={{ display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+              <span style={{ fontSize: 40 }}>🔒</span>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)" }}>Pro feature</div>
+              <div style={{ fontSize: 12, color: "var(--text-2)" }}>Upgrade to Pro to access the Audit Log.</div>
+              <Link href="/pricing" className="btn-accent" style={{ marginTop: 8 }}>Upgrade to Pro</Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const { entries, nextCursor } = await getAuditLogs({
     cursor: params.cursor,

@@ -3,6 +3,7 @@ import AlertBell from "@/components/alert-bell";
 import { getOrgContext } from "@/lib/org";
 import { prisma } from "@/lib/prisma";
 import { getCached, TTL } from "@/lib/redis";
+import { getOrgPlan, hasFeature } from "@/lib/billing";
 import InventoryClient from "./client";
 
 export default async function InventoryPage({
@@ -15,6 +16,9 @@ export default async function InventoryPage({
     searchParams,
   ]);
   const { organizationId, role, orgName = "", locale } = ctx;
+
+  const plan = await getOrgPlan(organizationId);
+  const canUseGallery = hasFeature(plan, "galleryView");
 
   // Fire-and-forget tracking
   void (async () => {
@@ -98,6 +102,7 @@ export default async function InventoryPage({
             isManager={ctx.role === "MANAGER" || ctx.role === "SUPER_ADMIN"}
             categories={categories}
             uncategorizedCount={uncategorizedCount}
+            canUseGallery={canUseGallery}
           />
         </div>
       </div>
